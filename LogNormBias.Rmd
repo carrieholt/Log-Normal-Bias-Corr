@@ -1,6 +1,6 @@
 ---
 title: "LogNormBias"
-author: "Carrie Holt"
+author: "Carrie Holt and Brooke Davis"
 date: "November 3, 2020"
 output: html_document
 ---
@@ -11,7 +11,8 @@ library(dplyr)
 library(ggplot2)
 library(TMB)
 #library(tmbstan)
-source("Functions.R")
+# The following files are adapted from Brooke Davis
+source("Functions.R") 
 dyn.load(dynlib("Single_Stock_Ricker"))
 
 ```
