@@ -16,18 +16,18 @@ dyn.load(dynlib("Single_Stock_Ricker"))
 
 ```
 
-## PART 1: Log-Normal Bias correction when simulated data
+## PART 1: Log-Normal bias correction when simulating data
 
-SC "I am not convinced that this analysis answers the actual concern I raised, which was about making sure that the expected value of projected recruitments matched the curve used to generate them."  
+Sean Cox's email; "I am not convinced that this analysis answers the actual concern I raised, which was about making sure that the expected value of projected recruitments matched the curve used to generate them."  
 
-Similarly, our concern is that the data being simulated relfect the underlying curve that they are generated from. However, we argue that when the Ricker parameters are estimated assuming median predicted values without the +sig2/2 correction in the log-likelihood (as described in the Working Paper), then the simulated data should not include the the -sig2/2 correction to match the underlying curve. 
+Similarly, our concern is that the data being simulated reflect the underlying curve that they are generated from. However,  when the Ricker parameters are estimated assuming median predicted values (without the -sig2/2 correction in the log-likelihood), as described in the Working Paper, then to match the underlying curve, we don't think the simulated data should include a -sig2/2 correction. Alternatively, the the log-normal bias correction could be included in both the simulation and estimation (see Part 2, below). 
 
-To explore the impacts of bias correction, we generate data from a known Ricker relationship including a log-normal bias correction and then estimate Ricker parameter from those data and compare to the "true" curve. We then repeat these 2 steps without a log-normal bias corretion when generationg the data.
+To explore the impacts of the log-normal bias correction, we generated data from a known Ricker relationship including a log-normal bias correction and then estimated the Ricker curve from those data and compared it to the "true" curve. We then repeated these 2 steps without a log-normal bias correction when generating the data.
 
 1a. First, random "true" data were generated from known Ricker parameters with a -sig2/2 bias correction. Within the Sim_Ricker_SR_Data() function, the option lnorm_corr=F, specifies whether the -sig2/2 correction is applied or not.
 
 ```{r}
-set.seed(1004)
+set.seed(10)
 SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = rnorm(1, 5, 2), true_b=1/100000,
                         hr_min = 0.2, hr_max = 0.8, lnorm_corr = T)
 
@@ -46,18 +46,22 @@ DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred
 
 2a. MLE Ricker parameters were estimated from "true" data
 
-MLEs of Ricker parmeters were etimated in TMB. The likelihood minimizes the difference between observed and median predicted values, as described in the Working paper.
-Within the RunRicker() function, the "BiasCorr=F" option means that the likelihood in TMB is:  
-ans += -dnorm(logR(i), logR_Fit(i), sigma, true); and
+MLEs of the Ricker parmeters were estimated in TMB. The likelihood minimizes the differences between observed and median predicted values, as described in the Working paper.
+Within the RunRicker() function, this is acheived with the "BiasCorr=F" option, and the likelihood fit in TMB is (excerpted):  
+
 logR_Fit(i) = logA + log(S(i)) -  S(i)/Smax;
 
-```{r, echo=FALSE}
+ans += -dnorm(logR(i), logR_Fit(i), sigma, true);
+
+
+
+```{r}
 
 TMB_No_Prior <- RunRicker(Data = SimDataDF, 
                           Fitting_SW = "TMB", 
                           Priors = F, BiasCorr=F, Name = "TMB_No_Prior")
 
-All_Ests <- bind_rows(DataDF, TMB_No_Prior[[1]])
+All_Ests <- suppressWarnings( bind_rows(DataDF, TMB_No_Prior[[1]]) )
 
 # Now plot all to compare 
 ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
@@ -72,19 +76,21 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
   ylab("Recruitment") +
   theme_bw(base_size=16)
 
+
+
 ```
 
-In this figure the estiamted curve is lower than the "true" curve. They do no match because the simulations include a bias correction, but the estimation does not.  If we were to further simulate data from the estimated curve with a log-normal -sig2/2 bias correction and then estimate the parameters of the curve based on those new simulated data using the LL as described in our working paper, the curve derived from those simulated data would again be lower than the red curve.
+In this figure, the estimated curve is lower than the "true" curve. They do not match because the data included a bias correction when they were generated, but the estimation did not.  If we were to further simulate data from the estimated curve with a log-normal -sig2/2 bias correction, and then estimate the parameters of the curve based on the new simulated data using the likelihood as described in our working paper, the new curve would again be lower than the red curve.
 
 
 
 We then repeated the steps, but did not include a bias correction when generating the data.
 
-1b (without bias correction). We generate "true" data without a -sig2/2 bias correction.
+1b (without bias correction). We generated "true" data without a -sig2/2 bias correction.
 
 
 ```{r}
-set.seed(1004)
+set.seed(10)
 SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = rnorm(1, 5, 2), true_b=1/100000,
                         hr_min = 0.2, hr_max = 0.8, lnorm_corr = F)
 
@@ -108,7 +114,7 @@ TMB_No_Prior <- RunRicker(Data = SimDataDF,
                           Fitting_SW = "TMB", 
                           Priors = F, BiasCorr=F, Name = "TMB_No_Prior")
 
-All_Ests <- bind_rows(DataDF, TMB_No_Prior[[1]])
+All_Ests <- suppressWarnings( bind_rows(DataDF, TMB_No_Prior[[1]]) )
 
 # Now plot all to compare 
 ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
@@ -123,22 +129,25 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
   ylab("Recruitment") +
   theme_bw(base_size=16)
 ```
+
 Here, the curve estimated from the generated data matches the underlying "true" curve.
 
 
 
-## PART 2: Revising estimation procedure
+## PART 2: Revising the estimation procedure
 
-The estimation procedure in the working paper is based on maximum likelihood, and fits the data to the median predicted recruitment in the log-likelhood. An alternative is to fit the data to the expected value of the predicted recruitment by adding the -sig2/2 correction into the predicted value. In TMB the likelihood is:
+The estimation procedure in the working paper is based on maximum likelihood, and fits the data to the median predicted recruitment in the log-likelhood. An alternative is to fit the data to the expected value of the predicted recruitment by adding the -sig2/2 correction to the predicted value. In TMB the likelihood would be:
 
 ans += -dnorm(logR(i) - ( logR_Fit(i) - pow(sigma,2)/Type(2) ), Type(0), sigma, true);
-OR, equivalently,
+
+or, equivalently,
+
 ans += -dnorm(logR(i)-logR_Fit(i), -pow(sigma,2)/Type(2), sigma, true); 
 
-3. As before, data were generated with a log-normal bias correction (as in 1a). Second, the Ricker parameters were estimated with the log-normal bias correction in the LL.
+As before, data were generated with a log-normal bias correction (as in 1a). Then, the Ricker parameters were estimated with the log-normal bias correction in the log-likelihood. In the function RunRucker(), the option BiasCorr is switched to "True".
 
 ```{r}
-set.seed(1004)
+set.seed(10)
 SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = rnorm(1, 5, 2), true_b=1/100000,
                         hr_min = 0.2, hr_max = 0.8, lnorm_corr = T)
 
@@ -157,7 +166,7 @@ TMB_No_Prior <- RunRicker(Data = SimDataDF,
                           Fitting_SW = "TMB", 
                           Priors = F, BiasCorr=T, Name = "TMB_No_Prior")
 
-All_Ests <- bind_rows(DataDF, TMB_No_Prior[[1]])
+All_Ests <- suppressWarnings( bind_rows(DataDF, TMB_No_Prior[[1]]) )
 
 # Now plot all to compare 
 ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
@@ -174,10 +183,11 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
 
 ```
 
-Now the estimated matches the true curve again.
+Now the estimated curve better matches the "true" curve. In this case, generating data with a log-normal bias correction is consistent with the estimation which also included the log-normal bias correction. 
+
+These simulations should be repeated over numerous MC trials to see if the pattern holds.
 
 
-
-I agree that the estimation methods for deriving recovery targets should match the approach for estimating parmaters for the projections and generating data in projections. Lauren is further investigating the methods for deriving recoery targets in the  (2014) WSP assessment, which were not well documented.
+I agree that the estimation method for deriving recovery targets should match the approach for estimating parameters and generating data for the projections. Lauren is further investigating the methods that were used to derive benchmarks in the 2014 WSP assessment and were applied as recovery targets in the Working Paper. Those methods were not well documented in the original 2014 assessment.
 
 
