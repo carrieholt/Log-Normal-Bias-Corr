@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(ggplot2)
 library(TMB)
-#library(tmbstan)
+library(tmbstan)
 # The following files are adapted from Brooke Davis
 source("Functions.R") 
 dyn.load(dynlib("Single_Stock_Ricker"))
@@ -19,44 +19,35 @@ dyn.load(dynlib("Single_Stock_Ricker"))
 
 ## Simulations to Expore Impacts of Log-Normal Bias Correction 
 
-Sean Cox's email; "I am not convinced that this analysis answers the actual concern I raised, which was about making sure that the expected value of projected recruitments matched the curve used to generate them."  
 
-Similarly, our concern is that the data being simulated reflect the underlying curve that they are generated from. However,  when the Ricker parameters are estimated assuming median predicted values (without the -sig2/2 correction in the log-likelihood), as described in the Working Paper, then to match the underlying curve, we don't think the simulated data should include a -sig2/2 correction. Alternatively, the the log-normal bias correction could be included in both the simulation and estimation (see Scenario 3, below). 
+To explore the impacts of the log-normal bias correction, we simulated 3 scenarios. In the first scenario (__Scenario 2.1__ Original working paper approach), we generated data from a known Ricker relationship without a log-normal bias correction and then estimated the Ricker curve from those data and compared it to the underlying curve used to generate the data. 
 
-To explore the impacts of the log-normal bias correction, we simulated 3 scenarios. In the first scneario, we generated data from a known Ricker relationship including a log-normal bias correction and then estimated the Ricker curve from those data and compared it to the underlying curve used to generate the data. 
-
-* __Scenario 1__: Bias Correction in Operating Model (OM) only. This represents the current recommendation that came out of the Science Review meeting
-
- + Operating Model = OM1: Bias Corr
+ + Operating Model = OM1: No Bias Corr
  
  + Estimator =  No Bias Corr
 
-In scenario 2, we repeated these 2 steps without a log-normal bias correction when generating the data.
+In __Scenario 2.2__, we repeated these 2 steps with a log-normal bias correction in the OM when generating the data, and in the estimation. This represents an alternative formulation based on mean recruitment
 
-* __Scenario 2__: no biasCorr in OM and estimator. This represents what was originally presented in the draft working paper
-
- + Operating Model = OM2: No Bias Corr
- 
- + Estimator =  No Bias Corr
-
-In Scenario 3, we explored the impact of including the bias correction in the estimation step. We repeated the data generation and estimation steps  with a log-normal bias correction in both steps.
-
-* __Scenario 3__: biasCorr in OM and estimator. This represents an alternative approach that could be considered
- 
- + Operating Model = OM1: Bias Corr
+ + Operating Model = OM2: Bias Corr
  
  + Estimator =  Bias Corr
 
-The OMs for each scenario have the same underlying Ricker parameters and Ricker curve. They differ only in the generation of data. Therefore in the plots, the curves from the Operating Model are simply labeled "OM".
+In __Scenario 2.3__, we explored the impact of including the bias correction in the generation of data, but not in the estimation step. This represents a biased bias-correction approach
+ 
+ + Operating Model = OM3: Bias Corr
+ 
+ + Estimator =  No Bias Corr
 
-__Scenario 1__
+The OMs for each scenario have the same underlying Ricker parameters that were chosen to reflect Harrison DU dynamics. They differ only in the generation of data (with or without log-normal bias correction). Therefore in the plots, the curves from all Operating Models are simply labeled "OM".
 
-Step 1. First, random data were generated from known Ricker parameters with a -sig2/2 bias correction. Within the Sim_Ricker_SR_Data() function, the option lnorm_corr=F, specifies whether the -sig2/2 correction is applied or not.
+__Scenario 2.1__
+
+Step 1. First, random data were generated from known Ricker parameters without a -sig2/2 bias correction. Within the Sim_Ricker_SR_Data() function, the option lnorm_corr=F, specifies whether the -sig2/2 correction is applied or not.
 
 ```{r}
 set.seed(1004)
-SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = rnorm(1, 5, 2), true_b=1/100000,
-                        hr_min = 0.2, hr_max = 0.8, lnorm_corr = T)
+SimData <- Sim_Ricker_SR_Data(leng=50, age=4,  Sig_Ricker = 0.76, true_a = 1.93, true_b=1/159744,
+                        hr_min = 0.25, hr_max = 0.35, lnorm_corr = F)
 
 SimDataDF <- data.frame(S = round(SimData$S), R = (SimData$R), Year = 1:length(SimData$S))
 
@@ -71,24 +62,24 @@ DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred
 ```
 
 
-Step 2.  MLE Ricker parameters were estimated from the data
+Step 2.  Ricker parameters were estimated from the data 
 
-MLEs of the Ricker parmeters were estimated in TMB. The likelihood minimizes the differences between observed and median predicted values, as described in the Working paper.
-Within the RunRicker() function, this is acheived with the "BiasCorr=F" option, and the likelihood fit in TMB is (excerpted):  
+Median posterior Ricker parmeters were estimated within TMBstan. Within the TMB (*.cpp) code, the predicted values in the likelihood represent median values. In the TMB code, the likelihood is written as:
 
 logR_Fit(i) = logA + log(S(i)) -  S(i)/Smax;
 
 ans += -dnorm(logR(i), logR_Fit(i), sigma, true);
 
 
+Within the RunRicker() function, this is achieved with the "BiasCorr=F" option. 
 
-```{r}
+```{r results='hide', warning=FALSE}
 
-TMB_No_Prior <- RunRicker(Data = SimDataDF, 
-                          Fitting_SW = "TMB", 
-                          Priors = F, BiasCorr=F, Name = "TMB_No_Prior")
+TMBstan_Prior <- RunRicker(Data = SimDataDF, 
+                          Fitting_SW = "tmbstan", 
+                          Priors = T, BiasCorr=F, Name = "TMBstan_Prior")
 
-All_Ests <- suppressWarnings( bind_rows(DataDF, TMB_No_Prior[[1]]) )
+All_Ests <- suppressWarnings( bind_rows(DataDF, TMBstan_Prior[[1]]) )
 
 # Now plot all to compare 
 ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
@@ -107,20 +98,19 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
 
 ```
 
-In this figure, the estimated curve is lower than the curve from the Operating Model (OM). They do not match because the data included a bias correction when they were generated, but the estimation did not.  If we were to further simulate data from the estimated curve with a log-normal -sig2/2 bias correction, and then estimate the parameters of the curve based on the new simulated data using the likelihood as described in our working paper, the new curve would again be lower than the red curve.
+In this figure, the estimated curve matches the curve from the Operating Model (OM). The thin red lines represent the 2.5th and 97.5th percentiles of the posterior distribution of predicted recruits.
 
 
+__Scenario 2.2__
+We then repeated the steps, but included a bias correction when generating the data and when estimating parameters.
 
-__Scenario 2__
-We then repeated the steps, but did not include a bias correction when generating the data.
-
-Step 1 (without bias correction). We generated data without a -sig2/2 bias correction.
+Step 1 (with bias correction). We generated data with a -sig2/2 bias correction.
 
 
 ```{r}
 set.seed(1004)
-SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = rnorm(1, 5, 2), true_b=1/100000,
-                        hr_min = 0.2, hr_max = 0.8, lnorm_corr = F)
+SimData <- Sim_Ricker_SR_Data(leng=50, age=4,  Sig_Ricker = 0.76, true_a = 1.93, true_b=1/159744,
+                        hr_min = 0.25, hr_max = 0.35, lnorm_corr = T)
 
 SimDataDF <- data.frame(S = round(SimData$S), R = (SimData$R), Year = 1:length(SimData$S))
 
@@ -134,15 +124,20 @@ DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred
 
 ```
 
-Step 2 (without bias correction). MLE of the Ricker parameters were then estimated using using the same likelihood as above. 
+Step 2 (with bias correction). Ricker parameters were then estimated in tmbstan, but where predicted values represented mean recruitment. The likelihood in TMB (*.cpp) code can be written as:
 
+ans += -dnorm(logR(i) - ( logR_Fit(i) - pow(sigma,2)/Type(2) ), Type(0), sigma, true);
+
+or, equivalently,
+
+ans += -dnorm(logR(i)-logR_Fit(i), -pow(sigma,2)/Type(2), sigma, true); 
 
 ```{r}
-TMB_No_Prior <- RunRicker(Data = SimDataDF, 
-                          Fitting_SW = "TMB", 
-                          Priors = F, BiasCorr=F, Name = "TMB_No_Prior")
+TMBstan_Prior <- RunRicker(Data = SimDataDF, 
+                          Fitting_SW = "tmbstan", 
+                          Priors = T, BiasCorr=T, Name = "TMBstan_Prior")
 
-All_Ests <- suppressWarnings( bind_rows(DataDF, TMB_No_Prior[[1]]) )
+All_Ests <- suppressWarnings( bind_rows(DataDF, TMBstan_Prior[[1]]) )
 
 # Now plot all to compare 
 ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
@@ -158,26 +153,18 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
   theme_bw(base_size=16)
 ```
 
-Here, the curve estimated from the generated data matches the underlying curve from the OM.
+Here, the curve estimated from the generated data also matches the underlying curve from the OM.
 
 
 
-__Scenario 3__
+__Scenario 2.3__
 
-The estimation procedure in the working paper is based on maximum likelihood, and fits the data to the median predicted recruitment in the log-likelhood. An alternative is to fit the data to the expected value of the predicted recruitment by adding the -sig2/2 correction to the predicted value. In TMB the likelihood would be:
-
-ans += -dnorm(logR(i) - ( logR_Fit(i) - pow(sigma,2)/Type(2) ), Type(0), sigma, true);
-
-or, equivalently,
-
-ans += -dnorm(logR(i)-logR_Fit(i), -pow(sigma,2)/Type(2), sigma, true); 
-
-As before, data were generated with a log-normal bias correction (as in Scenario 1). Then, the Ricker parameters were estimated with the log-normal bias correction in the log-likelihood. In the function RunRucker(), the option BiasCorr is switched to "True".
+In this scenario, the data are generated with log-normal bias correction, but the parameters are estimated assuming median predicted recruitments. This represents a biased, bias-correction approach.
 
 ```{r warning=FALSE}
 set.seed(1004)
-SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = rnorm(1, 5, 2), true_b=1/100000,
-                        hr_min = 0.2, hr_max = 0.8, lnorm_corr = T)
+SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.76, true_a = 1.93, true_b=1/159744, 
+                              hr_min = 0.25, hr_max = 0.35, lnorm_corr = T)
 
 SimDataDF <- data.frame(S = round(SimData$S), R = (SimData$R), Year = 1:length(SimData$S))
 
@@ -190,11 +177,11 @@ DataDF$Mod <- "True"
 DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred_up <- DataDF$Fit
 
 
-TMB_No_Prior <- RunRicker(Data = SimDataDF, 
-                          Fitting_SW = "TMB", 
-                          Priors = F, BiasCorr=T, Name = "TMB_No_Prior")
+TMBstan_Prior <- RunRicker(Data = SimDataDF, 
+                          Fitting_SW = "tmbstan", 
+                          Priors = T, BiasCorr=F, Name = "TMBstan_Prior")
 
-All_Ests <- suppressWarnings( bind_rows(DataDF, TMB_No_Prior[[1]]) )
+All_Ests <- suppressWarnings( bind_rows(DataDF, TMBstan_Prior[[1]]) )
 
 # Now plot all to compare 
 ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
@@ -211,27 +198,28 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
 
 ```
 
-Now the estimated curve better matches the curve from the OM. In this case, generating data with a log-normal bias correction is consistent with the estimation which also included the log-normal bias correction. 
+Here the estimated curve is negatively biased relative to the OM. 
 
 ## Iterate over multiple MC trials
 
 We then iterated the generation of data and estimation of Ricker parameters over multiple Monte Carlo trials. We ran the model over the same 3 scenarios as above:
 
-Scenario 1 = data are generated with log-normal bias correction, and without a correction in the estimation
+Scenario 2.1 = data are generated without log-normal bias correction, and without a correction in the estimation
 
-Scenario 2 = data are generated without a log-normal bias corretion, and withouth a correction in the estimation
+Scenario 2.2 = data are generated with a log-normal bias corretion, and with a correction in the estimation
 
-Scenario 3 = data are generated with log-normal bias correction, and with a correction in the estimation
+Scenario 2.3 = data are generated with log-normal bias correction, but without a correction in the estimation
 
-For Scenario 1:
+For Scenario 2.1:
 
-```{r cache=TRUE}
+```{r eval=FALSE}
+# This code takes 5-10 minutes to run
 ntrials <- 100
 RicPars <- matrix(NA, ntrials, 4)
 
 for (i in 1:ntrials) {
-  SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = 5, true_b=1/100000, #true_a = rnorm(1,5, 2)
-                                hr_min = 0.2, hr_max = 0.8, lnorm_corr = T)
+  SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.76, true_a = 1.93, true_b=1/159744, 
+                              hr_min = 0.25, hr_max = 0.35, lnorm_corr = F)
   
   SimDataDF <- data.frame(S = round(SimData$S), R = (SimData$R), Year = 1:length(SimData$S))
   
@@ -243,18 +231,21 @@ for (i in 1:ntrials) {
   DataDF$Mod <- "True"
   DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred_up <- DataDF$Fit
   
-  # run using TMB, without prior
+  # run using TMBstan
   # Switch BiasCorr between T and F and plot to see impact of bias correction in LL
-  TMB_No_Prior <- RunRicker(Data = SimDataDF, 
-                            Fitting_SW = "TMB", 
-                            Priors = F, BiasCorr=F, Name = "TMB_No_Prior")
-  #RicPars[i,] <-  TMB_No_Prior$Ests$Estimate[1:3] #logA, logSigma, logSMAX
-  logA <- TMB_No_Prior$Ests %>% filter(Param=="logA") %>% pull(Estimate)
-  logSmax <- TMB_No_Prior$Ests %>% filter(Param=="logSmax") %>% pull(Estimate)
-  logSigma <- TMB_No_Prior$Ests %>% filter(Param=="logSigma") %>% pull(Estimate)
-  RicPars[i,] <- c(logA, logSmax, logSigma, TMB_No_Prior$Scale)
+  TMBstan_Prior <- RunRicker(Data = SimDataDF, 
+                            Fitting_SW = "tmbstan", 
+                            Priors = T, BiasCorr=F, Name = "TMBstan_Prior")
+  
+  Ests_quant <- apply ( as.data.frame(TMBstan_Prior$Ests) , 2, quantile, probs = c(0.025, 0.5, 0.975) )
+  logA <- as.data.frame(Ests_quant)$logA[2] # median
+  logSmax <- as.data.frame(Ests_quant)$logSmax[2] # median
+  logSigma <- as.data.frame(Ests_quant)$logSigma[2] # median
+  RicPars[i,] <- c(logA, logSmax, logSigma, TMBstan_Prior$Scale)  
 }
 
+colnames(RicPars) <- c("logA", "logSmax", "logSigma", "Scale")
+write.csv(RicPars, "RicParsS1.csv")
 
 ```
 
@@ -263,11 +254,11 @@ The Ricker parameters for all MC trials were compiled in a dataframe, and parame
 ```{r}
 # Set up data frame of Ricker paramters for all MC trials
 
-colnames(RicPars) <- c("logA", "logSmax", "logSigma", "Scale")
+RicPars <- read.csv("RicParsS1.csv")
 RicPars <- as.data.frame(RicPars)
 RicPars <- RicPars %>% mutate(Smax = exp(logSmax)*Scale) 
 
-# Tune simulations by remove all MC trials with productivity less than 1 (logA < 0)
+# Remove any MC trials with productivity less than 1 (logA < 0)
 
 RicPars <- RicPars %>% filter(logA >= 0)
 ntrialsTuned <- length (RicPars$logA)
@@ -294,7 +285,7 @@ Rpred_mean <- apply(Rpred, 1, mean)
 
 # Create a dataframe of these percentiles
 EstAgg <- data.frame(S=S, Fit=Rpred_dist[2,], CI_low=Rpred_dist[1,], CI_up = Rpred_dist[3,])
-EstAgg$Mod <- "TMB_No_Prior"
+EstAgg$Mod <- "TMBstan_Prior"
 
 # The plot is very similar with mean of the distribiton of recruitments instead of the median
 # EstAgg <- data.frame(S=S, Fit=Rpred_mean, CI_low=Rpred_dist[1,], CI_up = Rpred_dist[3,])
@@ -308,8 +299,6 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
   geom_line(size = 1.5) +
   geom_ribbon( alpha = 0.1) +
   #geom_point(aes(x=S, y=R), col = "black") +
-  #geom_ribbon(aes(x=S, y=Pred, ymin = Pred_low, ymax = Pred_up, fill= Mod), 
-  #            alpha = 0.05) +
   scale_color_discrete(name = "", labels = c("Estimator =\nNo Bias Corr", "OM")) + 
   guides(fill = FALSE)  +
   xlab("Spawners") + 
@@ -320,17 +309,18 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
 
 ```
 
-These curves diverge.
+Here the curves match. The thin red lines are the  2.5th and 97.5th percentiles of predicted recruits over 100 MC trials, derived from median posterior parameter estimates within each MC trial. 
 
 
-For Scenario 2, data were generated without a log-normal bias corretion, and without a correction in the estimation
-```{r echo = FALSE, warning=FALSE, cache=TRUE}
+For __Scenario 2.2__, data were generated with a log-normal bias correction, and with a correction in the estimation
+```{r echo = FALSE, eval=FALSE}
+# This code takes 5-10 minutes to run
 ntrials <- 100
 RicPars <- matrix(NA, ntrials, 4)
 
 for (i in 1:ntrials) {
-  SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = 5, true_b=1/100000, #true_a = rnorm(1,5, 2)
-                                hr_min = 0.2, hr_max = 0.8, lnorm_corr = F)
+  SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.76, true_a = 1.93, true_b=1/159744, 
+                              hr_min = 0.25, hr_max = 0.35,  lnorm_corr = T)
   SimDataDF <- data.frame(S = round(SimData$S), R = (SimData$R), Year = 1:length(SimData$S))
   
   
@@ -340,19 +330,27 @@ for (i in 1:ntrials) {
   DataDF$Mod <- "True"
   DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred_up <- DataDF$Fit
   
-  # run using TMB, without prior
-  TMB_No_Prior <- RunRicker(Data = SimDataDF, 
-                            Fitting_SW = "TMB", 
-                            Priors = F, BiasCorr=F, Name = "TMB_No_Prior")
-  logA <- TMB_No_Prior$Ests %>% filter(Param=="logA") %>% pull(Estimate)
-  logSmax <- TMB_No_Prior$Ests %>% filter(Param=="logSmax") %>% pull(Estimate)
-  logSigma <- TMB_No_Prior$Ests %>% filter(Param=="logSigma") %>% pull(Estimate)
-  RicPars[i,] <- c(logA, logSmax, logSigma, TMB_No_Prior$Scale)
+  # run using TMB, with prior
+  TMBstan_Prior <- RunRicker(Data = SimDataDF, 
+                            Fitting_SW = "tmbstan", 
+                            Priors = T, BiasCorr=T, Name = "TMBstan_Prior")
+  Ests_quant <- apply ( as.data.frame(TMBstan_Prior$Ests) , 2, quantile, probs = c(0.025, 0.5, 0.975) )
+  logA <- as.data.frame(Ests_quant)$logA[2] # median
+  logSmax <- as.data.frame(Ests_quant)$logSmax[2] # median
+  logSigma <- as.data.frame(Ests_quant)$logSigma[2] # median
+  RicPars[i,] <- c(logA, logSmax, logSigma, TMBstan_Prior$Scale)  
 }
 
+colnames(RicPars) <- c("logA", "logSmax", "logSigma", "Scale")
+write.csv(RicPars, "RicParsS2.csv")
+
+
+```
+
+```{r echo = FALSE, warning = FALSE}
 # Set up data frame of Ricker paramters for all MC trials
 
-colnames(RicPars) <- c("logA", "logSmax", "logSigma", "Scale")
+RicPars <- read.csv("RicParsS2.csv")
 RicPars <- as.data.frame(RicPars)
 RicPars <- RicPars %>% mutate(Smax = exp(logSmax)*Scale) 
 
@@ -381,7 +379,7 @@ Rpred_mean <- apply(Rpred, 1, mean)
 
 # Create a dataframe of these percentiles
 EstAgg <- data.frame(S=S, Fit=Rpred_dist[2,], CI_low=Rpred_dist[1,], CI_up = Rpred_dist[3,])
-EstAgg$Mod <- "TMB_No_Prior"
+EstAgg$Mod <- "TMBstan_Prior"
 
 All_Ests <- bind_rows(DataDF, EstAgg)
 
@@ -390,90 +388,6 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
   geom_line(size = 1.5) +
   geom_ribbon( alpha = 0.1) +
   #geom_point(aes(x=S, y=R), col = "black") +
-  #geom_ribbon(aes(x=S, y=Pred, ymin = Pred_low, ymax = Pred_up, fill= Mod), 
-  #            alpha = 0.05) +
-  scale_color_discrete(name = "", labels = c("Estimator =\nNo Bias Corr", "OM")) + 
-  guides(fill = FALSE)  +
-  xlab("Spawners") + 
-  ylab("Recruitment") +
-  xlim(0, 200000) +
-  theme_bw(base_size=16)
-
-
-```
-
-These curves match.
-
-
-For scenario 3, data were generated with a log-normal bias correction, and with a correction in the estimation
-```{r echo = FALSE, warning=FALSE, cache=TRUE}
-ntrials <- 100
-RicPars <- matrix(NA, ntrials, 4)
-
-for (i in 1:ntrials) {
-  SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.8, true_a = 5, true_b=1/100000, #true_a = rnorm(1,5, 2)
-                                hr_min = 0.2, hr_max = 0.8, lnorm_corr = T)
-  SimDataDF <- data.frame(S = round(SimData$S), R = (SimData$R), Year = 1:length(SimData$S))
-  
-  
-  # Create DF to store true and fitted values
-  DataDF <- SimDataDF[, c("S", "R", "Year")]
-  DataDF$Fit <- SimData$true_a * DataDF$S * exp( -SimData$true_b * DataDF$S ) 
-  DataDF$Mod <- "True"
-  DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred_up <- DataDF$Fit
-  
-  # run using TMB, without prior
-  TMB_No_Prior <- RunRicker(Data = SimDataDF, 
-                            Fitting_SW = "TMB", 
-                            Priors = F, BiasCorr=T, Name = "TMB_No_Prior")
-  logA <- TMB_No_Prior$Ests %>% filter(Param=="logA") %>% pull(Estimate)
-  logSmax <- TMB_No_Prior$Ests %>% filter(Param=="logSmax") %>% pull(Estimate)
-  logSigma <- TMB_No_Prior$Ests %>% filter(Param=="logSigma") %>% pull(Estimate)
-  RicPars[i,] <- c(logA, logSmax, logSigma, TMB_No_Prior$Scale)
-}
-
-# Set up data frame of Ricker paramters for all MC trials
-
-colnames(RicPars) <- c("logA", "logSmax", "logSigma", "Scale")
-RicPars <- as.data.frame(RicPars)
-RicPars <- RicPars %>% mutate(Smax = exp(logSmax)*Scale) 
-
-# Tune simulations by remove all MC trials with productivity less than 1 (logA < 0)
-
-RicPars <- RicPars %>% filter(logA >= 0)
-ntrialsTuned <- length (RicPars$logA)
-
-# Calculate predicted recruitments for all MC trials along a range of spawner abundances
-S <- NA
-Rpred <- matrix(NA, 2000, ntrialsTuned)
-
-for (i in 1:ntrialsTuned) {
-  for (j in 1:2000){ #Assuming true smax ~ 100,000, and plot extends to 2 x Smax
-    S[j] <- j*100
-    Rpred[j,i] <-  exp( RicPars$logA[i] ) * S[j] * exp( -S[j] / RicPars$Smax[i] )
-  }
-}
-
-# Calculate 5th, 50th, and 95th percentiles of the distribution of recruitment along
-# the range of spawner abundances
-
-Rpred_dist <- apply(Rpred, 1, quantile, probs = c(0.025, 0.5, 0.975))
-Rpred_mean <- apply(Rpred, 1, mean) 
-
-
-# Create a dataframe of these percentiles
-EstAgg <- data.frame(S=S, Fit=Rpred_dist[2,], CI_low=Rpred_dist[1,], CI_up = Rpred_dist[3,])
-EstAgg$Mod <- "TMB_No_Prior"
-
-All_Ests <- bind_rows(DataDF, EstAgg)
-
-# Now plot all to compare 
-ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
-  geom_line(size = 1.5) +
-  geom_ribbon( alpha = 0.1) +
-  #geom_point(aes(x=S, y=R), col = "black") +
-  #geom_ribbon(aes(x=S, y=Pred, ymin = Pred_low, ymax = Pred_up, fill= Mod), 
-  #            alpha = 0.05) +
   scale_color_discrete(name = "", labels = c("Estimator =\nBias Corr", "OM")) + 
   guides(fill = FALSE)  +
   xlab("Spawners") + 
@@ -481,9 +395,98 @@ ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, 
   xlim(0, 200000) +
   theme_bw(base_size=16)
 
+
 ```
 
-Again, these curves match. Although the curves in the top two plots are the same, the data generated from Scenario 3 are lower than the data generated from Scenario 2.
+These curves match again.
+
+
+For __Scenario 2.3__, data were generated with a log-normal bias correction, but without a correction in the estimation
+```{r echo = FALSE, eval=FALSE}
+# This code takes 5-10 minutes to run
+ntrials <- 100
+RicPars <- matrix(NA, ntrials, 4)
+
+for (i in 1:ntrials) {
+  SimData <- Sim_Ricker_SR_Data(leng=50, age=4, Sig_Ricker = 0.76, true_a = 1.93, true_b=1/159744, 
+                              hr_min = 0.25, hr_max = 0.35, lnorm_corr = T)
+  SimDataDF <- data.frame(S = round(SimData$S), R = (SimData$R), Year = 1:length(SimData$S))
+  
+  
+  # Create DF to store true and fitted values
+  DataDF <- SimDataDF[, c("S", "R", "Year")]
+  DataDF$Fit <- SimData$true_a * DataDF$S * exp( -SimData$true_b * DataDF$S ) 
+  DataDF$Mod <- "True"
+  DataDF$CI_low <- DataDF$CI_up  <-  DataDF$Pred <- DataDF$Pred_low <- DataDF$Pred_up <- DataDF$Fit
+  
+  # run using TMB, without prior
+  TMBstan_Prior <- RunRicker(Data = SimDataDF, 
+                            Fitting_SW = "tmbstan", 
+                            Priors = T, BiasCorr=F, Name = "TMBstan_Prior")
+  Ests_quant <- apply ( as.data.frame(TMBstan_Prior$Ests) , 2, quantile, probs = c(0.025, 0.5, 0.975) )
+  logA <- as.data.frame(Ests_quant)$logA[2] # median
+  logSmax <- as.data.frame(Ests_quant)$logSmax[2] # median
+  logSigma <- as.data.frame(Ests_quant)$logSigma[2] # median
+  RicPars[i,] <- c(logA, logSmax, logSigma, TMBstan_Prior$Scale)  
+}
+
+colnames(RicPars) <- c("logA", "logSmax", "logSigma", "Scale")
+write.csv(RicPars, "RicParsS3.csv")
+```
+
+```{r echo = FALSE, warning=FALSE}
+# Set up data frame of Ricker paramters for all MC trials
+
+RicPars <- read.csv("RicParsS3.csv")
+RicPars <- as.data.frame(RicPars)
+RicPars <- RicPars %>% mutate(Smax = exp(logSmax)*Scale) 
+
+# Tune simulations by remove all MC trials with productivity less than 1 (logA < 0)
+
+RicPars <- RicPars %>% filter(logA >= 0)
+ntrialsTuned <- length (RicPars$logA)
+
+# Calculate predicted recruitments for all MC trials along a range of spawner abundances
+S <- NA
+Rpred <- matrix(NA, 2000, ntrialsTuned)
+
+for (i in 1:ntrialsTuned) {
+  for (j in 1:2000){ #Assuming true smax ~ 100,000, and plot extends to 2 x Smax
+    S[j] <- j*100
+    Rpred[j,i] <-  exp( RicPars$logA[i] ) * S[j] * exp( -S[j] / RicPars$Smax[i] )
+  }
+}
+
+# Calculate 5th, 50th, and 95th percentiles of the distribution of recruitment along
+# the range of spawner abundances
+
+Rpred_dist <- apply(Rpred, 1, quantile, probs = c(0.025, 0.5, 0.975))
+Rpred_mean <- apply(Rpred, 1, mean) 
+
+
+# Create a dataframe of these percentiles
+EstAgg <- data.frame(S=S, Fit=Rpred_dist[2,], CI_low=Rpred_dist[1,], CI_up = Rpred_dist[3,])
+EstAgg$Mod <- "TMB_No_Prior"
+
+All_Ests <- bind_rows(DataDF, EstAgg)
+
+# Now plot all to compare 
+ggplot(data = All_Ests, aes(x=S, y=Fit, ymin = CI_low, ymax = CI_up, col = Mod, fill= Mod)) +
+  geom_line(size = 1.5) +
+  geom_ribbon( alpha = 0.1) +
+  #geom_point(aes(x=S, y=R), col = "black") +
+  #geom_ribbon(aes(x=S, y=Pred, ymin = Pred_low, ymax = Pred_up, fill= Mod), 
+  #            alpha = 0.05) +
+  scale_color_discrete(name = "", labels = c("Estimator =\nNo Bias Corr", "OM")) + 
+  guides(fill = FALSE)  +
+  xlab("Spawners") + 
+  ylab("Recruitment") +
+  xlim(0, 200000) +
+  theme_bw(base_size=16)
+
+```
+
+In this scenario, the estimated curve is negatively biased relative to the OM. Although the OM curves in the previous three plots are the same, the data generated from Scenarios 2.1 and 2.3 are lower than the data generated from Scenario 2.2.
 
 __Bottom line__: The method for simulating data should match the method for estimating parameters and vice versa.
 

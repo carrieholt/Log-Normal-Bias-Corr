@@ -9,7 +9,7 @@ Sim_Ricker_SR_Data <- function( leng=20, age=4, Sig_Ricker = 0.2, true_a = 3, tr
   SRep<- log(true_a) / true_b
   # Calculate spawners at MSY (approximation; Hilborn and Walters 1992)
   SMSY <- SRep * ( 0.5 - 0.07*log(true_a) )
-  
+
   # solve for Sgen
   ObjectiveSGen <- function( S, SpMSY, alpha, beta ) {
     # Recruits to get to SMSY (Holt et al. 2009)
@@ -22,11 +22,11 @@ Sim_Ricker_SR_Data <- function( leng=20, age=4, Sig_Ricker = 0.2, true_a = 3, tr
     return( negLL )
   }  # End ObjectiveSGen function
   
-  opt <- optimize( f=ObjectiveSGen, interval=c(0, SMSY), SpMSY=SMSY,
-                   alpha=true_a, beta=true_b )
-
-  # Get SGen from the optimized output (i.e., minimum neg log-like)
-  SGen <- opt$minimum
+  # opt <- optimize( f=ObjectiveSGen, interval=c(0, SMSY), SpMSY=SMSY,
+  #                  alpha=true_a, beta=true_b )
+  # 
+  # # Get SGen from the optimized output (i.e., minimum neg log-like)
+  # SGen <- opt$minimum
   
   # initiate population somwhere between 100 and Smax
   init <- round(runif(4, 100, 1/true_b))
@@ -58,13 +58,17 @@ Sim_Ricker_SR_Data <- function( leng=20, age=4, Sig_Ricker = 0.2, true_a = 3, tr
       }
     }
     if(lnorm_corr == F){ 
-      rec[i] <- max(R_mean*exp(eps[i]), 100) 
+      # rec[i] <- max(R_mean*exp(eps[i]), 100) 
+      rec[i] <- R_mean*exp(eps[i]) 
     } else {
-      rec[i] <- max(R_mean*exp(eps[i]-0.5*Sig^2), 100)
+      #rec[i] <- max(R_mean*exp(eps[i]-0.5*Sig^2), 100)
+      rec[i] <- R_mean*exp(eps[i]-0.5*Sig^2)
     }
     # want to find way to make sure pop gets knocked down every once in a while
-    if(sum(esc[(i-4):(i-1)] > SMSY) == 4) { hr_vec[i] <- hr_max}
-    esc[i] <- max((1-hr_vec[i])*rec[i], 100)
+    # if(sum(esc[(i-4):(i-1)] > SMSY) == 4) { hr_vec[i] <- hr_max}
+    # esc[i] <- max((1-hr_vec[i])*rec[i], 100)
+    
+    esc[i] <- (1-hr_vec[i])*rec[i]
     catch[i] <- hr_vec[i]*rec[i]
   }
 
@@ -78,7 +82,7 @@ Sim_Ricker_SR_Data <- function( leng=20, age=4, Sig_Ricker = 0.2, true_a = 3, tr
                R=rec[(age+1):(leng+age)],
                S=esc[1:leng], 
                catch=catch[(age+1):(leng+age)], 
-               catch_obs=catch_obs, esc_obs=esc_obs, SGen = SGen)
+               catch_obs=catch_obs, esc_obs=esc_obs)#, SGen = SGen)
   return(output)
   
 }
@@ -208,13 +212,13 @@ RunRicker <- function(Data,
                       Priors = T, # if fitting with TMB, have option not use priors
                       BiasCorr = F, #Should a bias correction be included in the LL?
                       Name = "Test", # Name to put in Mod column
-                      logA_mean = 0,logA_sig = 0, # priors on logAlpha
+                      logA_mean = 1,logA_sig = 1, # priors on logAlpha
                       Sig_Gam_Dist = 0.001, # inverse gamma shape and scale param
-                      Smax_mean = 0, Smax_sig = 0) { # priors on capacity, Smax
+                      Smax_mean = as.numeric(quantile(Data$S, 0.8)), Smax_sig = as.numeric(quantile(Data$S, 0.8)) / 2 ) { # priors on capacity, Smax
  
   # Want to scale down obs to make models more stable
   # only really required for TMB, but will use for all models
-    Scale <- 10^(floor(log(mean(Data$R), 10)))
+  Scale <- 10^(floor(log(mean(Data$R), 10)))
 
   # Set up data and starting value lists list to go into model
   # these are the same regardless of software
@@ -222,15 +226,15 @@ RunRicker <- function(Data,
   data$S <- Data$S/Scale 
   data$logA_mean <- logA_mean
   data$Sig_Gam_Dist <- Sig_Gam_Dist
+  
   data$logSmax_mean <- log(Smax_mean/Scale)
-  # set Bayes to 0, switch to one if using tmbstan
-  data$Bayes <- 0
   # Add a bias correction in Ricker estimation
   data$BiasCorr <- as.numeric(BiasCorr)
   # set up starting values
   param <- list()
   param$logA <- 1
-  
+  # set Bayes to 0, switch to one if using tmbstan
+  data$Bayes <- 0
   
   # if using TMB input logR, rather than R_Obs, need Scale, Prior indicator
   if(Fitting_SW %in% c("TMB", "tmbstan")){
@@ -241,18 +245,23 @@ RunRicker <- function(Data,
     if(Fitting_SW =="tmbstan") data$Bayes <- 1
   }
   
-  # if using TMB, stan variance is defined using sd
+  # if using TMB, tmbtsand or STAN variance is defined using sd
   if(Fitting_SW %in% c("TMB", "Stan", "tmbstan")){
     data$logA_sig <- logA_sig
     data$logSmax_sig <- Smax_sig/Scale
     param$logSigma <- -2
   }
-  
+
   # if jags or stan need R_Obs rather than logR, and N
   if(Fitting_SW %in% c("JAGS", "Stan")){
+    
     data$R_Obs <- Data$R/Scale
     data$N <- dim(Data)[1]
     param$Smax <- as.numeric(quantile(Data$S, 0.8)/Scale)
+    
+    data$logA_mean <- logA_mean
+    data$Sig_Gam_Dist <- Sig_Gam_Dist
+    
   }
   
   # if using jags, variance is defined using precision (1/variance)
@@ -307,7 +316,7 @@ RunRicker <- function(Data,
     opt <- nlminb(obj$par, obj$fn, obj$gr, control = list(eval.max = 1e5, iter.max = 1e5))
     # now fit as mcmc
     fitmcmc <- tmbstan(obj, chains=3, iter=10000, init=list(opt$par), 
-                       control = list(adapt_delta = 0.95))
+                       control = list(adapt_delta = 0.95))#0.99))
     # pull out posterior vals
     All_Ests <- as.matrix(fitmcmc)
     
