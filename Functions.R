@@ -212,8 +212,11 @@ RunRicker <- function(Data,
                       Priors = T, # if fitting with TMB, have option not use priors
                       BiasCorr = F, #Should a bias correction be included in the LL?
                       Name = "Test", # Name to put in Mod column
+                      # Normal prior on logA with mean =1, SD=1
                       logA_mean = 1,logA_sig = 1, # priors on logAlpha
+                      # Inverse gamma on Ricker sigma (0.001,0,001)
                       Sig_Gam_Dist = 0.001, # inverse gamma shape and scale param
+                      # Normal prior on Smax with mean= 80th percentile of observed spawners, and SD = half of this
                       Smax_mean = as.numeric(quantile(Data$S, 0.8)), Smax_sig = as.numeric(quantile(Data$S, 0.8)) / 2 ) { # priors on capacity, Smax
  
   # Want to scale down obs to make models more stable
