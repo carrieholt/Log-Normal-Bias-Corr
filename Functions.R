@@ -3,7 +3,7 @@
 
 # Simulate a single stock of Ricker SR data =============================================================================================
 Sim_Ricker_SR_Data <- function( leng=20, age=4, Sig_Ricker = 0.2, true_a = 3, true_b=1/5000,
-                          hr_min = 0.2, hr_max = 0.8, lnorm_corr = F, autoCorr = F, rho=NA){
+                          hr_min = 0.2, hr_max = 0.8,  EscPolicy = F, constEsc = NA, lnorm_corr = F, autoCorr = F, rho=NA){
   
   # Estimate Sgen 
   SRep<- log(true_a) / true_b
@@ -68,8 +68,14 @@ Sim_Ricker_SR_Data <- function( leng=20, age=4, Sig_Ricker = 0.2, true_a = 3, tr
     # if(sum(esc[(i-4):(i-1)] > SMSY) == 4) { hr_vec[i] <- hr_max}
     # esc[i] <- max((1-hr_vec[i])*rec[i], 100)
     
-    esc[i] <- (1-hr_vec[i])*rec[i]
-    catch[i] <- hr_vec[i]*rec[i]
+    if (!EscPolicy) esc[i] <- (1-hr_vec[i])*rec[i]
+    if (EscPolicy) { 
+      if( rec[i] >= constEsc) esc[i] <- constEsc
+      else esc[i] <- rec[i]
+    }
+    
+    if (!EscPolicy) catch[i] <- hr_vec[i]*rec[i]
+    if (EscPolicy) catch[i] <- rec[i] - esc[i] 
   }
 
   
