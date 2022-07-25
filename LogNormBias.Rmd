@@ -14,9 +14,9 @@ library(tmbstan)
 # The following files are adapted from Brooke Davis
 source("Functions.R") 
 
-dyn.unload(dynlib("Single_Stock_Ricker"))
+#dyn.unload(dynlib("Single_Stock_Ricker"))
 # compile("Single_Stock_Ricker.cpp")
-# dyn.load(dynlib("Single_Stock_Ricker"))
+dyn.load(dynlib("Single_Stock_Ricker"))
 
 ```
 
