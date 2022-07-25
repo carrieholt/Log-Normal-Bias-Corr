@@ -18,7 +18,7 @@ I agree, Walters and Hilborn did not recommend adding a bias correction to the e
 
 **Page 2**
 
-I'm not sure I follow the agrument that we should us different likelihoods for semelparous and iteroparous species because of their life-histories. Methot and Taylor (2011) were motivated to add a scalar to the log-normal bias correction precisely because the recruitment estimates were sensitive to the estiamte of sigma for iteroparous marine fishes (i.e., recruitment is not invariant to the estimate of sigma).I have asked Sean Anderson and Andrew Edwards for their opinions on this.
+I'm not sure I follow the agrument that we should use different likelihoods for semelparous and iteroparous species because of their life-histories. Methot and Taylor (2011) were motivated to add a scalar to the log-normal bias correction precisely because the recruitment estimates were sensitive to the estiamte of sigma for iteroparous marine fishes (i.e., recruitment is not invariant to the estimate of sigma).I have asked Sean Anderson and Andrew Edwards for their opinions on this.
 
 **Pages 2-3.** "When S [Spawners] behaves as a random variable in a time-series projection of the Ricker stock-recruit function, the assertations that Holt and Davis make about Equations 1 and 3 do not hold. ... When a colleague of mine and I independently simulated a time series of recruitment using no lognormal corrretion factor (ie., Equation 1 of Holt and Davis document) and different harvest control rules, e.g., Umsy policy option or a variable harvest rate policy option, ... the median recrutiment was instead considerable less than the recruitment predicted by the stock-recruitment parameters. "
 
